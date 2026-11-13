@@ -1,0 +1,156 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isActiveMember(coupleId) {
+      return isSignedIn()
+        && firestore.exists(/databases/(default)/documents/couples/$(coupleId))
+        && firestore.get(/databases/(default)/documents/couples/$(coupleId)).data.status == 'active'
+        && request.auth.uid in firestore.get(/databases/(default)/documents/couples/$(coupleId)).data.memberUids;
+    }
+
+    function viewerCoupleId() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.coupleId;
+    }
+
+    function sharesActiveCoupleWith(uid) {
+      return isSignedIn()
+        && viewerCoupleId() != null
+        && firestore.exists(/databases/(default)/documents/users/$(uid))
+        && viewerCoupleId() == firestore.get(/databases/(default)/documents/users/$(uid)).data.coupleId;
+    }
+
+    function isFollowerOf(ownerCoupleId) {
+      return isSignedIn()
+        && viewerCoupleId() != null
+        && firestore.exists(/databases/(default)/documents/follows/$(viewerCoupleId() + '_' + ownerCoupleId));
+    }
+
+    function isPersonFollowerOf(ownerUid) {
+      return isSignedIn()
+        && ownerUid != null
+        && firestore.exists(/databases/(default)/documents/personFollows/$(request.auth.uid + '_' + ownerUid));
+    }
+
+    function isSingleBlocked(uid) {
+      return isSignedIn() && (
+        firestore.exists(/databases/(default)/documents/singleBlocks/$(request.auth.uid + '_' + uid))
+        || firestore.exists(/databases/(default)/documents/singleBlocks/$(uid + '_' + request.auth.uid))
+      );
+    }
+
+    function isPersonalPostOwner(ownerId, postId) {
+      return isSignedIn()
+        && ownerId == request.auth.uid
+        && firestore.exists(/databases/(default)/documents/posts/$(postId))
+        && firestore.get(/databases/(default)/documents/posts/$(postId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isSupportedImage() {
+      return request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function isSupportedVideo() {
+      return request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+    }
+
+    function canReadPostMedia(coupleId, postId) {
+      return isActiveMember(coupleId)
+        || isPersonalPostOwner(coupleId, postId)
+        || (
+          isSignedIn()
+          && firestore.exists(/databases/(default)/documents/posts/$(postId))
+          && (
+            firestore.get(/databases/(default)/documents/posts/$(postId)).data.visibility == 'public'
+            || (
+              firestore.get(/databases/(default)/documents/posts/$(postId)).data.visibility == 'followers'
+              && (
+                isFollowerOf(coupleId)
+                || isPersonFollowerOf(firestore.get(/databases/(default)/documents/posts/$(postId)).data.ownerUid)
+              )
+            )
+            || (
+              firestore.get(/databases/(default)/documents/posts/$(postId)).data.keys().hasAll(['pendingCollaboratorUids'])
+              && request.auth.uid in firestore.get(/databases/(default)/documents/posts/$(postId)).data.pendingCollaboratorUids
+            )
+            || (
+              firestore.get(/databases/(default)/documents/posts/$(postId)).data.keys().hasAll(['acceptedCollaboratorUids'])
+              && request.auth.uid in firestore.get(/databases/(default)/documents/posts/$(postId)).data.acceptedCollaboratorUids
+            )
+          )
+        );
+    }
+
+    match /profileImages/{coupleId}/avatar.jpg {
+      // Profiles are intentionally discoverable; avatars therefore are too.
+      allow read: if isSignedIn();
+      allow write: if isActiveMember(coupleId) && isSupportedImage();
+    }
+
+    // Individual avatars stay within the paired account. Community-facing profile pictures
+    // continue to use /profileImages so a personal image is never made public by accident.
+    match /userImages/{uid}/avatar.jpg {
+      allow read: if isSignedIn() && (request.auth.uid == uid || sharesActiveCoupleWith(uid));
+      allow write: if request.auth.uid == uid && isSupportedImage();
+    }
+
+    // Public social identity is opt-in and stored separately from account-only personal photos.
+    match /socialProfileImages/{uid}/avatar.jpg {
+      allow read: if isSignedIn()
+        && (request.auth.uid == uid || (
+          firestore.exists(/databases/(default)/documents/personProfiles/$(uid))
+          && firestore.get(/databases/(default)/documents/personProfiles/$(uid)).data.isDiscoverable == true
+        ));
+      allow write: if request.auth.uid == uid && isSupportedImage();
+    }
+
+    // Matching is an explicit opt-in. The photo is readable only while the corresponding
+    // Single profile is active; uploads and replacements remain owner-only.
+    match /singleProfileImages/{uid}/avatar.jpg {
+      allow read: if isSignedIn() && (
+        request.auth.uid == uid
+        || (
+          firestore.exists(/databases/(default)/documents/singleProfiles/$(uid))
+          && firestore.get(/databases/(default)/documents/singleProfiles/$(uid)).data.isMatchingActive == true
+          && !isSingleBlocked(uid)
+        )
+      );
+      allow write: if request.auth.uid == uid && isSupportedImage();
+    }
+
+    match /postImages/{coupleId}/{postId}/{imageName} {
+      allow read: if canReadPostMedia(coupleId, postId);
+      allow write: if (isActiveMember(coupleId) || isPersonalPostOwner(coupleId, postId)) && isSupportedImage();
+    }
+
+    match /postVideos/{coupleId}/{postId}/{videoName} {
+      allow read: if canReadPostMedia(coupleId, postId);
+      allow write: if (isActiveMember(coupleId) || isPersonalPostOwner(coupleId, postId)) && isSupportedVideo();
+    }
+
+    function isEventCreator(eventId) {
+      return isSignedIn()
+        && firestore.exists(/databases/(default)/documents/groupEvents/$(eventId))
+        && firestore.get(/databases/(default)/documents/groupEvents/$(eventId)).data.creatorUid == request.auth.uid;
+    }
+
+    match /groupEventImages/{eventId}/cover.jpg {
+      allow read: if isSignedIn()
+        && firestore.exists(/databases/(default)/documents/groupEvents/$(eventId))
+        && request.auth.uid in firestore.get(/databases/(default)/documents/groupEvents/$(eventId)).data.participantUids;
+      allow write: if isEventCreator(eventId) && isSupportedImage();
+    }
+
+    // Generated date visuals never contain user photos. Clients can read them only after sign-in;
+    // creation and overwriting stay server-only, where the OpenAI call and cost limits run.
+    match /generatedDateImages/{version}/{imageName} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}

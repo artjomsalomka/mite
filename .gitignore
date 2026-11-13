@@ -1,0 +1,29 @@
+# Secrets and private local state (only examples may be committed)
+.env
+.env.*
+!.env.example
+.secret
+.secret.*
+!.secret.example
+**/GoogleService-Info*.plist
+!Configuration/GoogleService-Info.example.plist
+.firebaserc
+**/*service-account*.json
+**/*serviceAccount*.json
+*.p8
+*.p12
+*.pem
+*.key
+# Accounts, diagnostics, backups, generated code
+emulator-data/
+.demo-private/
+.local-backups/
+firebase-export-*/
+.firebase/
+*.log
+node_modules/
+functions/lib/
+*.xcodeproj/
+DerivedData/
+build/
+.DS_Store

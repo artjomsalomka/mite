@@ -1,0 +1,36 @@
+{
+  "name": "functions",
+  "description": "Cloud Functions for Perfect Boyfriend",
+  "engines": {
+    "node": "22"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.js",
+    "smoke:personal-social": "node scripts/smokePersonalSocial.js",
+    "smoke:post-media": "node scripts/smokePostMediaLifecycle.js",
+    "smoke:couple": "node scripts/smokeCoupleLifecycle.js",
+    "smoke:auth": "node scripts/smokeAuthLifecycle.js",
+    "smoke:group": "node scripts/smokeGroupCollaboration.js",
+    "smoke:single": "node scripts/smokeSingleMatching.js",
+    "smoke:rules": "node scripts/smokeFirestoreRules.js",
+    "smoke:ai-group-plan": "node scripts/smokeAiGroupPlan.js",
+    "quality:local": "npm run lint && node --test test/*.test.js && npm run smoke:auth && npm run smoke:couple && npm run smoke:personal-social && npm run smoke:post-media && npm run smoke:group && npm run smoke:single && npm run smoke:rules",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "lint": "tsc --noEmit",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.4.0",
+    "firebase-functions": "^7.4.0",
+    "openai": "^7.20.0",
+    "stripe": "^22.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.6.0"
+  },
+  "private": true
+}
